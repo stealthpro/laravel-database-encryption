@@ -28,7 +28,7 @@ class EncryptionEloquentBuilder extends Builder
             return self::whereRaw("CONVERT(AES_DECRYPT(FROM_bASE64(`{$filter->field}`), '{$salt}') USING utf8mb4) {$filter->operation} ? ",
                 [$filter->value]);
         } elseif (DB::connection() instanceof PostgresConnection) {
-            return self::whereRaw("encode(decrypt(decode({$filter->field}, 'base64'), {$salt}, 'aes-ecb'), 'escape') {$filter->operation} ? ",
+            return self::whereRaw("encode(decrypt(decode({$filter->field}, 'base64'), '{$salt}', 'aes-ecb'), 'escape') {$filter->operation} ? ",
                 [$filter->value]);
         }
     }
