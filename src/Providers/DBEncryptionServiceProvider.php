@@ -3,17 +3,20 @@
  * src/Providers/EncryptServiceProvider.php.
  *
  */
+
 namespace ESolution\DBEncryption\Providers;
 
+use ESolution\DBEncryption\Console\Commands\DecryptModel;
+use ESolution\DBEncryption\Console\Commands\EncryptModel;
+use Illuminate\Database\MySqlConnection;
+use Illuminate\Database\PostgresConnection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\ServiceProvider;
 
-use ESolution\DBEncryption\Console\Commands\EncryptModel;
-use ESolution\DBEncryption\Console\Commands\DecryptModel;
-
 class DBEncryptionServiceProvider extends ServiceProvider
 {
+
     /**
      * Bootstrap the application services.
      *
@@ -28,14 +31,14 @@ class DBEncryptionServiceProvider extends ServiceProvider
         $this->bootValidators();
 
         if ($this->app->runningInConsole()) {
-
             $this->publishes([
-                __DIR__.'/../Config/config.php' => config_path('laravelDatabaseEncryption.php'),
+                __DIR__
+                .'/../Config/config.php' => config_path('laravelDatabaseEncryption.php'),
             ], 'config');
 
             $this->commands([
                 EncryptModel::class,
-                DecryptModel::class
+                DecryptModel::class,
             ]);
         }
     }
@@ -47,62 +50,79 @@ class DBEncryptionServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        $this->mergeConfigFrom(__DIR__.'/../Config/config.php', 'laravelDatabaseEncryption');
+        $this->mergeConfigFrom(__DIR__.'/../Config/config.php',
+            'laravelDatabaseEncryption');
     }
 
 
     private function bootValidators()
     {
+        Validator::extend('unique_encrypted',
+            function ($attribute, $value, $parameters, $validator) {
+                // Initialize
+                $salt = substr(hash('sha256',
+                    config('laravelDatabaseEncryption.encrypt_key')), 0, 16);
 
-        Validator::extend('unique_encrypted', function ($attribute, $value, $parameters, $validator) {
+                $withFilter = count($parameters) > 3 ? true : false;
 
-            // Initialize
-            $salt = substr(hash('sha256', config('laravelDatabaseEncryption.encrypt_key')), 0, 16);
-
-            $withFilter = count($parameters) > 3 ? true : false;
-
-            $ignore_id = isset($parameters[2]) ? $parameters[2] : '';
-
-            // Check using normal checker
-            $data = DB::table($parameters[0])->whereRaw("CONVERT(AES_DECRYPT(FROM_BASE64(`{$parameters[1]}`), '{$salt}') USING utf8mb4) = '{$value}' ");
-            $data = $ignore_id != '' ? $data->where('id','!=',$ignore_id) : $data;
-
-            if ($withFilter) {
-                $data->where($parameters[3], $parameters[4]);
-            }
-
-            if($data->first()){
-                return false;
-            }
-
-            return true;
-        });
-
-        Validator::extend('exists_encrypted', function ($attribute, $value, $parameters, $validator) {
-
-            // Initialize
-            $salt = substr(hash('sha256', config('laravelDatabaseEncryption.encrypt_key')), 0, 16);
-
-            $withFilter = count($parameters) > 3 ? true : false;
-            if(!$withFilter){
                 $ignore_id = isset($parameters[2]) ? $parameters[2] : '';
-            }else{
-                $ignore_id = isset($parameters[4]) ? $parameters[4] : '';
-            }
 
-            // Check using normal checker
-            $data = DB::table($parameters[0])->whereRaw("CONVERT(AES_DECRYPT(FROM_BASE64(`{$parameters[1]}`), '{$salt}') USING utf8mb4) = '{$value}' ");
-            $data = $ignore_id != '' ? $data->where('id','!=',$ignore_id) : $data;
+                // Check using normal checker
+                if (DB::connection() instanceof MySqlConnection) {
+                    $data = DB::table($parameters[0])
+                        ->whereRaw("CONVERT(AES_DECRYPT(FROM_bASE64(`{$parameters[1]}`), '{$salt}') USING utf8mb4) = '{$value}' ");
+                } elseif (DB::connection() instanceof PostgresConnection) {
+                    $data = DB::table($parameters[0])
+                        ->whereRaw("encode(decrypt(decode({$parameters[1]}, 'base64'), '{$salt}', 'aes-ecb'), 'escape') = '{$value}' ");
+                }
+                $data = $ignore_id != '' ? $data->where('id', '!=', $ignore_id)
+                    : $data;
 
-            if ($withFilter) {
-                $data->where($parameters[2], $parameters[3]);
-            }
+                if ($withFilter) {
+                    $data->where($parameters[3], $parameters[4]);
+                }
 
-            if ($data->first()) {
+                if ($data->first()) {
+                    return false;
+                }
+
                 return true;
-            }
+            });
 
-            return false;
-        });
+        Validator::extend('exists_encrypted',
+            function ($attribute, $value, $parameters, $validator) {
+                // Initialize
+                $salt = substr(hash('sha256',
+                    config('laravelDatabaseEncryption.encrypt_key')), 0, 16);
+
+                $withFilter = count($parameters) > 3 ? true : false;
+                if ( ! $withFilter) {
+                    $ignore_id = isset($parameters[2]) ? $parameters[2] : '';
+                } else {
+                    $ignore_id = isset($parameters[4]) ? $parameters[4] : '';
+                }
+
+                // Check using normal checker
+                if (DB::connection() instanceof MySqlConnection) {
+                    $data = DB::table($parameters[0])
+                        ->whereRaw("CONVERT(AES_DECRYPT(FROM_bASE64(`{$parameters[1]}`), '{$salt}') USING utf8mb4) = '{$value}' ");
+                } elseif (DB::connection() instanceof PostgresConnection) {
+                    $data = DB::table($parameters[0])
+                        ->whereRaw("encode(decrypt(decode({$parameters[1]}, 'base64'), '{$salt}', 'aes-ecb'), 'escape') = '{$value}' ");
+                }
+                $data = $ignore_id != '' ? $data->where('id', '!=', $ignore_id)
+                    : $data;
+
+                if ($withFilter) {
+                    $data->where($parameters[2], $parameters[3]);
+                }
+
+                if ($data->first()) {
+                    return true;
+                }
+
+                return false;
+            });
     }
+
 }
